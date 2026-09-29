@@ -1,0 +1,129 @@
+"use client";
+
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { User as FirebaseUser, onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { auth, db, googleProvider } from "@/lib/firebase";
+import { useRouter, usePathname } from "next/navigation";
+
+interface AppUser {
+  uid: string;
+  name: string;
+  email: string;
+  phone?: string;
+  photoURL?: string;
+  walletBalance: number;
+  role: 'user' | 'admin' | 'owner';
+  isBlocked: boolean;
+  ip: string;
+  createdAt: any;
+}
+
+interface AuthContextType {
+  firebaseUser: FirebaseUser | null;
+  userData: AppUser | null;
+  loading: boolean;
+  signInWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
+  refreshUserData: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [userData, setUserData] = useState<AppUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const fetchUserData = async (uid: string) => {
+    const docRef = doc(db, "users", uid);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      setUserData(docSnap.data() as AppUser);
+      return docSnap.data() as AppUser;
+    }
+    return null;
+  };
+
+  const refreshUserData = async () => {
+    if (firebaseUser) {
+      await fetchUserData(firebaseUser.uid);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
+      if (user) {
+        let data = await fetchUserData(user.uid);
+        if (!data) {
+          // Fetch IP
+          let ip = "0.0.0.0";
+          try {
+            const res = await fetch("https://api.ipify.org?format=json");
+            const json = await res.json();
+            ip = json.ip;
+          } catch (e) {}
+
+          const newUser: AppUser = {
+            uid: user.uid,
+            name: user.displayName || "User",
+            email: user.email || "",
+            phone: user.phoneNumber || "",
+            photoURL: user.photoURL || "",
+            walletBalance: 0,
+            role: "user",
+            isBlocked: false,
+            ip,
+            createdAt: serverTimestamp(),
+          };
+          await setDoc(doc(db, "users", user.uid), newUser);
+          setUserData(newUser);
+          data = newUser;
+        }
+
+        if (data.isBlocked) {
+          router.push("/login?error=blocked");
+          return;
+        }
+
+        if (!data.phone && pathname !== "/verify") {
+          router.push("/verify");
+        }
+      } else {
+        setUserData(null);
+        if (pathname !== "/login" && pathname !== "/") {
+          router.push("/login");
+        }
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [pathname]);
+
+  const signInWithGoogle = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+      router.push("/");
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const logout = async () => {
+    await signOut(auth);
+    setUserData(null);
+    setFirebaseUser(null);
+    router.push("/login");
+  };
+
+  return (
+    <AuthContext.Provider value={{ firebaseUser, userData, loading, signInWithGoogle, logout, refreshUserData }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => useContext(AuthContext);
