@@ -7,7 +7,7 @@ import Navbar from "@/components/Navbar";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Pak Earning Marketplace",
+  title: "nawab-zada-Marketplace",
   description: "Secure Social & Earning Platform Pakistan",
 };
 
