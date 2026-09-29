@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { User as FirebaseUser, onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 interface AppUser {
   uid: string;
@@ -35,14 +35,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [userData, setUserData] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const pathname = usePathname();
 
   const fetchUserData = async (uid: string) => {
     const docRef = doc(db, "users", uid);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      setUserData(docSnap.data() as AppUser);
-      return docSnap.data() as AppUser;
+      const data = docSnap.data() as AppUser;
+      setUserData(data);
+      return data;
     }
     return null;
   };
@@ -59,7 +59,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (user) {
         let data = await fetchUserData(user.uid);
         if (!data) {
-          // Fetch IP
           let ip = "0.0.0.0";
           try {
             const res = await fetch("https://api.ipify.org?format=json");
@@ -81,27 +80,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           };
           await setDoc(doc(db, "users", user.uid), newUser);
           setUserData(newUser);
-          data = newUser;
-        }
-
-        if (data.isBlocked) {
+        } else if (data.isBlocked) {
           router.push("/login?error=blocked");
-          return;
-        }
-
-        if (!data.phone && pathname !== "/verify") {
-          router.push("/verify");
         }
       } else {
         setUserData(null);
-        if (pathname !== "/login" && pathname !== "/") {
-          router.push("/login");
-        }
       }
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [pathname]);
+  }, []); // <-- pathname hata diya, ab loop nahi banega
 
   const signInWithGoogle = async () => {
     try {
@@ -121,7 +109,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{ firebaseUser, userData, loading, signInWithGoogle, logout, refreshUserData }}>
-      {children}
+      {!loading ? children : <div className="p-10 text-center">Loading...</div>}
     </AuthContext.Provider>
   );
 };
